@@ -22,19 +22,20 @@ v is measurement white noise ~ N(0,R)
 
 
 #include <ros/ros.h>
+#include <geometry_msgs/Vector3.h>
 #include <Eigen/Dense>
 
-const int dimention_n = 3;
-const int dimention_m= 3;
-const int dimention_l= 3;
+const int dimention_n = 2;
+const int dimention_m= 2;
+const int dimention_l= 1;
 
 
 typedef Eigen::Matrix<float,dimention_n,1> State_vector;
-typedef Eigen::Matrix<float,dimention_n,1> control_vector;
-typedef Eigen::Matrix<float,dimention_n,1> obs_vector;
+typedef Eigen::Matrix<float,dimention_l,1> control_vector;
+typedef Eigen::Matrix<float,dimention_m,1> obs_vector;
 
-typedef Eigen::Matrix<float, dimention_n, dimention_n> Dynamics_model;
-typedef Eigen::Matrix<float, dimention_n, dimention_l> Control_model;
+typedef Eigen::Matrix<float, dimention_n, dimention_n> dynamics_model;
+typedef Eigen::Matrix<float, dimention_n, dimention_l> control_model;
 typedef Eigen::Matrix<float, dimention_m, dimention_n> obs_to_state;
 typedef Eigen::Matrix<float, dimention_n, dimention_n> error_cov;
 typedef Eigen::Matrix<float, dimention_m, dimention_m> measurement_error_cov;
@@ -42,8 +43,8 @@ typedef Eigen::Matrix<float, dimention_m, dimention_m> measurement_error_cov;
 error_cov I;
 obs_to_state K;
 obs_to_state H;
-Control_model B;
-Dynamics_model A;
+control_model B;
+dynamics_model A;
 error_cov Q;
 error_cov P;
 error_cov P_old;
@@ -51,6 +52,7 @@ error_cov P_minus;
 measurement_error_cov R;
 measurement_error_cov O;
 
+obs_vector n;
 obs_vector z;
 control_vector u;
 control_vector u_old;
@@ -58,11 +60,27 @@ control_vector u_old;
 State_vector x_minus;
 State_vector x;
 State_vector x_old;
+geometry_msgs::Vector3 msg;
+
+//for rand number
+float LO= -1;
+float HI= 1;
+float rand_float=0;
 
 void get_new_measurements()
 {
-//z=new_stuff;
-
+	rand_float = LO + (float)rand()/(1.0/(HI-LO));
+	n<< rand_float, 0 ; //n = [rand from -1 to 1, 0]
+	z=H*x+n;
+	/*
+	std::cout <<"n \n";
+	std::cout <<n;
+	std::cout <<"\n";
+	
+	std::cout <<"z \n";
+	std::cout <<z;
+	std::cout <<"\n";
+*/
 }
 
 
@@ -73,25 +91,91 @@ int main(int argc, char** argv)
 	ros::init(argc, argv,"Kalman");
     ros::NodeHandle node;
     ros::Rate loop_rate(50);
-	ros::Subscriber sub;
-	ros::Publisher pub;
+//	ros::Subscriber sub;
+//	ros::Publisher pub;
+	ros::Publisher pub = node.advertise<geometry_msgs::Vector3> ("state", 1);
 	//
+	
+
+//Mass spring damper system
+float k=1;
+float m=10;
+float d=0;
+
+
+A<< d/m,-k/m,0,1;
+B<<1/m,0;
+H<<1,0,0,0; //is this C?
+u_old<<0;
+x_old<< 1,0;
+Q<<.1,0,.1,0;
+P_old<<.1,0,.1,0;
+R<<1,0,0,1;
+	
+ROS_INFO("Starting Kalman loop \n");
 	
 	while (ros::ok()){
 			
-			
-//Prediction Step
+		//Prediction Step
 		x_minus=A*x_old+B*u_old;
+		/*
+		std::cout <<"x minus \n";
+		std::cout <<x_minus;
+		std::cout <<"\n";
+		*/
 		P_minus=A*P_old*A.transpose() + Q;
+		get_new_measurements();
 
-get_new_measurements();
-//Correction Step
+		//Correction Step
 		O=H*P_minus*H.transpose()+R;
+		/*
+		std::cout <<"O \n";
+		std::cout <<O;
+		std::cout <<"\n";
+		std::cout <<"O.inv \n";
+		std::cout <<O.inverse();
+		std::cout <<"\n";
+		std::cout <<"H \n";
+		std::cout <<H;
+		std::cout <<"\n";
+		std::cout <<"H.trans \n";
+		std::cout <<H.transpose();
+		std::cout <<"\n";
+		std::cout <<"P- * H.trans \n";
+		std::cout <<P_minus*H.transpose();
+		std::cout <<"\n";
+		std::cout <<"P- * H.trans \n";
+		std::cout <<P_minus*H.transpose();
+		std::cout <<"\n";
+		*/
 		K=P_minus*H.transpose()*O.inverse();
+		/*
+		std::cout <<"K \n";
+		std::cout <<K;
+		std::cout <<"\n";
+		*/
 		x=x_minus+K*(z-H*x_minus);
+		/*
+		std::cout <<"x \n";
+		std::cout <<x;
+		std::cout <<"\n";
+		*/
 		P=(I.setIdentity()-K*H)*P_minus;
-	
-	}//while ros ok
+		/*
+		std::cout <<"P \n";
+		std::cout <<P;
+		std::cout <<"\n";
+		*/
+		//Next step
+	    //ROS_INFO("State: %f %f",x(0), x(1));
+	    msg.x=x(0);
+		msg.y=x(1);
+		msg.z=z(0);
+		pub.publish(msg);
+		
+		x_old=x;
+		P_old=P;
+		}//while ros ok
 	
 }//main
 
