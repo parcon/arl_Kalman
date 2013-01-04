@@ -24,6 +24,7 @@ v is measurement white noise ~ N(0,R)
 #include <ros/ros.h>
 #include <geometry_msgs/Vector3.h>
 #include <Eigen/Dense>
+#include <std_msgs/Float32MultiArray.h>
 
 const int dimention_n = 17;
 const int dimention_m= 8;
@@ -55,13 +56,18 @@ measurement_error_cov O;
 
 obs_vector n;
 obs_vector z;
-control_vector u;
-control_vector u_old;
+control_vector u1;
+control_vector u1_old;
+control_vector u2;
+control_vector u2_old;
 
 State_vector x_minus;
 State_vector x;
 State_vector x_old;
 geometry_msgs::Vector3 msg;
+
+std_msgs::Float32MultiArray x_msg;
+
 
 //for rand number
 float LO= -1;
@@ -70,9 +76,10 @@ float rand_float=0;
 
 void get_new_measurements()
 {
-	rand_float = LO + (float)rand()/(1.0/(HI-LO));
-	n<< rand_float, 0 ; //n = [rand from -1 to 1, 0]
-	z=H*x+n;
+
+	//  z=.....;
+	//also build u1 and u2
+	
 	/*
 	std::cout <<"n \n";
 	std::cout <<n;
@@ -229,6 +236,11 @@ u2<< 0,0,0;
 //u2_old
 u2_old<< 0,0,0;
 
+//x_msg
+x_msg.data.clear();
+size =dimention_n;
+
+
 ROS_INFO("Starting Kalman loop \n");
 	
 	while (ros::ok()){
@@ -285,10 +297,13 @@ ROS_INFO("Starting Kalman loop \n");
 		*/
 		//Next step
 	    //ROS_INFO("State: %f %f",x(0), x(1));
-	    msg.x=x(0);
-		msg.y=x(1);
-		msg.z=z(0);
-		pub.publish(msg);
+	    
+	    x_msg.data.clear(); //clear data
+	    for (i=0; j<n_dimention+1; i++)
+	    {
+	    x_msg.data.push_back(x(i));		//fill msg
+		}
+		pub.publish(msg); //publish message
 		
 		x_old=x;
 		P_old=P;
