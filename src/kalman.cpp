@@ -25,9 +25,9 @@ v is measurement white noise ~ N(0,R)
 #include <geometry_msgs/Vector3.h>
 #include <Eigen/Dense>
 
-const int dimention_n = 2;
-const int dimention_m= 2;
-const int dimention_l= 1;
+const int dimention_n = 17;
+const int dimention_m= 8;
+const int dimention_l= 3;
 
 
 typedef Eigen::Matrix<float,dimention_n,1> State_vector;
@@ -43,7 +43,8 @@ typedef Eigen::Matrix<float, dimention_m, dimention_m> measurement_error_cov;
 error_cov I;
 obs_to_state K;
 obs_to_state H;
-control_model B;
+control_model B1;
+control_model B2;
 dynamics_model A;
 error_cov Q;
 error_cov P;
@@ -90,13 +91,13 @@ int main(int argc, char** argv)
 	ROS_INFO("Starting Kalman");
 	ros::init(argc, argv,"Kalman");
     ros::NodeHandle node;
-    ros::Rate loop_rate(50);
+    ros::Rate loop_rate(100);
 //	ros::Subscriber sub;
 //	ros::Publisher pub;
 	ros::Publisher pub = node.advertise<geometry_msgs::Vector3> ("state", 1);
 	//
 	
-
+/*
 //Mass spring damper system
 float k=1;
 float m=10;
@@ -111,13 +112,129 @@ x_old<< 1,0;
 Q<<.1,0,.1,0;
 P_old<<.1,0,.1,0;
 R<<1,0,0,1;
-	
+*/	
+int g =9.8;
+int k1= 1.0;
+int k2=0.5;
+int k3 =0.5;
+
+//A
+A<< 0,0,0, 1,0,0, -1,0,0, 0,0, 0,0, 0,0, 0,0; //first line
+A<< 0,0,0, 0,1,0, 0,-1,0, 0,0, 0,0, 0,0, 0,0; //2nd line
+A<< 0,0,0, 0,0,1, 0,0,-1, 0,0, 0,0, 0,0, 0,0; //3nd line
+
+A<< 0,0,0, 0,0,0,   0,0,0,  0,g, 0,0, 0,0, 0,0; //4 line
+A<< 0,0,0, 0,0,0,   0,0,0, -g,0, 0,0, 0,0, 0,0; //5 line
+A<< 0,0,0, 0,0,-k1, 0,0,0,  0,0, 0,0, 0,0, 0,0; //6 line
+
+A<< 0,0,0, 0,0,0, 0,0,0,   0,0,  0,g, 0,0, 0,0; //7 line
+A<< 0,0,0, 0,0,0, 0,0,0,   0,0, -g,0, 0,0, 0,0; //8 line
+A<< 0,0,0, 0,0,0, 0,0,-k1, 0,0,  0,0, 0,0, 0,0; //9 line
+
+A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 1,0, 0,0; //10 line
+A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,1, 0,0; //11 line
+
+A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 1,0; //12 line
+A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,1; //13 line
+
+A<< 0,0,0, 0,0,0,   0,0,0,  -k2,0,  0,0, k3,0, 0,0; //14
+A<< 0,0,0, 0,0,0,   0,0,0,   0,-k2, 0,0, 0,k3, 0,0; //15
+
+A<< 0,0,0, 0,0,0,   0,0,0,  0,0, -k2,0, 0,0, k3,0; //16
+A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,-k2, 0,0, 0,k3; //17
+
+//B1
+B1<<0,0,0; //1
+B1<<0,0,0; //2
+B1<<0,0,0; //3
+
+B1<<0,0,0; //4
+B1<<0,0,0; //5
+B1<<0,0,k1; //6
+
+B1<<0,0,0; //7
+B1<<0,0,0; //8
+B1<<0,0,0; //9
+
+B1<<0,0,0; //10
+B1<<0,0,0; //11
+
+B1<<0,0,0; //12
+B1<<0,0,0; //13
+
+B1<<k2,0,0; //14
+B1<<0,k2,0; //15
+
+B1<<0,0,0; //16
+B1<<0,0,0; //17
+
+//B2
+B2<<0,0,0; //1
+B2<<0,0,0; //2
+B2<<0,0,0; //3
+
+B2<<0,0,0; //4
+B2<<0,0,0; //5
+B2<<0,0,0; //6
+
+B2<<0,0,0; //7
+B2<<0,0,0; //8
+B2<<0,0,k1; //9
+
+B2<<0,0,0; //10
+B2<<0,0,0; //11
+
+B2<<0,0,0; //12
+B2<<0,0,0; //13
+
+B2<<0,0,0; //14
+B2<<0,0,0; //15
+
+B2<<k2,0,0; //16
+B2<<0,k2,0; //17
+
+//H
+H<<1,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0; 
+H<<0,1,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0;
+H<<0,0,1, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0;
+
+H<<0,0,0, 1,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0; 
+H<<0,0,0, 0,1,0,   0,0,0,  0,0, 0,0, 0,0, 0,0; 
+H<<0,0,0, 0,0,1,   0,0,0,  0,0, 0,0, 0,0, 0,0; 
+
+H<<0,0,0, 0,0,0,   0,0,0,  1,0, 0,0, 0,0, 0,0;
+H<<0,0,0, 0,0,0,   0,0,0,  0,1, 0,0, 0,0, 0,0;
+
+//Q
+Q<< MatrixXd::Identity(dimention_n, dimention_n);
+
+//R
+Q<< MatrixXd::Identity(dimention_n, dimention_n);
+
+//P_old
+P_old<< MatrixXd::Identity(dimention_n, dimention_n);
+
+//I
+I << MatrixXd::Identity(dimention_n, dimention_n);
+
+//u1
+u1<< 0,0,0;
+
+//u1_old
+u1_old<< 0,0,0;
+
+//u2
+u2<< 0,0,0;
+
+//u2_old
+u2_old<< 0,0,0;
+
 ROS_INFO("Starting Kalman loop \n");
 	
 	while (ros::ok()){
 			
 		//Prediction Step
-		x_minus=A*x_old+B*u_old;
+		x_minus=A*x_old+B1*u1_old+B2*u2_old;
 		/*
 		std::cout <<"x minus \n";
 		std::cout <<x_minus;
@@ -160,7 +277,7 @@ ROS_INFO("Starting Kalman loop \n");
 		std::cout <<x;
 		std::cout <<"\n";
 		*/
-		P=(I.setIdentity()-K*H)*P_minus;
+		P=(I-K*H)*P_minus;
 		/*
 		std::cout <<"P \n";
 		std::cout <<P;
