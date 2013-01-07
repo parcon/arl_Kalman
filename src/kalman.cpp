@@ -37,13 +37,14 @@ typedef Eigen::Matrix<float,dimention_m,1> obs_vector;
 
 typedef Eigen::Matrix<float, dimention_n, dimention_n> dynamics_model;
 typedef Eigen::Matrix<float, dimention_n, dimention_l> control_model;
-typedef Eigen::Matrix<float, dimention_m, dimention_n> obs_to_state;
+typedef Eigen::Matrix<float, dimention_m, dimention_n> state_to_obs;
+typedef Eigen::Matrix<float, dimention_n, dimention_m> obs_to_state;
 typedef Eigen::Matrix<float, dimention_n, dimention_n> error_cov;
 typedef Eigen::Matrix<float, dimention_m, dimention_m> measurement_error_cov;
 
 error_cov I;
 obs_to_state K;
-obs_to_state H;
+state_to_obs H;
 control_model B1;
 control_model B2;
 dynamics_model A;
@@ -212,17 +213,20 @@ H<<0,0,0, 0,0,1,   0,0,0,  0,0, 0,0, 0,0, 0,0;
 H<<0,0,0, 0,0,0,   0,0,0,  1,0, 0,0, 0,0, 0,0;
 H<<0,0,0, 0,0,0,   0,0,0,  0,1, 0,0, 0,0, 0,0;
 
-//Q
-Q<< MatrixXd::Identity(dimention_n, dimention_n);
-
-//R
-Q<< MatrixXd::Identity(dimention_n, dimention_n);
-
-//P_old
-P_old<< MatrixXd::Identity(dimention_n, dimention_n);
 
 //I
-I << MatrixXd::Identity(dimention_n, dimention_n);
+I<<Eigen::Matrix<float, dimention_n, dimention_n>::Identity();
+
+//Q
+Q=I;
+
+//R
+R=Eigen::Matrix<float, dimention_m, dimention_m>::Identity();
+
+//P_old
+P_old=I;
+
+
 
 //u1
 u1<< 0,0,0;
@@ -238,7 +242,7 @@ u2_old<< 0,0,0;
 
 //x_msg
 x_msg.data.clear();
-size =dimention_n;
+//x_msg.data.size =dimention_n;
 
 
 ROS_INFO("Starting Kalman loop \n");
@@ -299,7 +303,7 @@ ROS_INFO("Starting Kalman loop \n");
 	    //ROS_INFO("State: %f %f",x(0), x(1));
 	    
 	    x_msg.data.clear(); //clear data
-	    for (i=0; j<n_dimention+1; i++)
+	    for (int i=0; i<dimention_n+1; i++)
 	    {
 	    x_msg.data.push_back(x(i));		//fill msg
 		}
