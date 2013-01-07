@@ -20,14 +20,16 @@ w is process white noise ~ N(0,Q)
 v is measurement white noise ~ N(0,R)
 */
 
-
 #include <ros/ros.h>
 #include <geometry_msgs/Vector3.h>
 #include <Eigen/Dense>
 #include <std_msgs/Float32MultiArray.h>
+#include <geometry_msgs/Point.h>
+#include <sensor_msgs/Imu.h>
+#include <ardrone_autonomy/Navdata.h>
 
 const int dimention_n = 17;
-const int dimention_m= 8;
+const int dimention_m= 10;
 const int dimention_l= 3;
 
 
@@ -69,27 +71,82 @@ geometry_msgs::Vector3 msg;
 
 std_msgs::Float32MultiArray x_msg;
 
+float deg2rad= 0.0174532925;
+float rotation_roll =0.0;
+float rotation_pitch =0.0;
+float rotation_yaw =0.0;
+float vel_x=0.0;
+float vel_y=0.0;
+float vel_z=0.0;
+float w_roll=0.0;
+float w_pitch=0.0;
+float w_yaw=0.0;
 
-//for rand number
-float LO= -1;
-float HI= 1;
-float rand_float=0;
 
-void get_new_measurements()
+int tag_id =0;//CHANGES WHICH TAG TO DISPLAY
+//int had_message =0;
+//int drone_state;
+float vision_angle[2];
+float tag_position[3];
+int cam_height=360;
+int cam_width=640;
+float cam_width_degree=92*deg2rad;
+float cam_height_degree=51*deg2rad; //cam_width_degree*(cam_height/cam_width) //NOT MEASURED
+
+uint32_t tags_count;
+uint32_t tags_type[10];
+uint32_t tags_xc[10];
+uint32_t tags_yc[10];
+uint32_t tags_width[10];
+uint32_t tags_height[10];
+float tags_orientation[10];
+float tags_distance[10];
+double time_stamp;
+
+
+void state_callback(const ardrone_autonomy::Navdata& msg_in)
 {
+	//Take in state of robot that we are interested in
+	rotation_roll=msg_in.rotX*deg2rad;
+	rotation_pitch=msg_in.rotY*deg2rad;
+	rotation_yaw=msg_in.rotZ*deg2rad;
+	
+	vel_x=msg_in.vx*0.001; //  mm/s to m/s
+	vel_y=msg_in.vy*0.001; //  mm/s to m/s
+	vel_z=msg_in.vz*0.001; //  mm/s to m/s
+	
+	//tags
+	tags_count=msg_in.tags_count;
+	time_stamp=msg_in.tm;	
 
-	//  z=.....;
-	//also build u1 and u2
-	
-	/*
-	std::cout <<"n \n";
-	std::cout <<n;
-	std::cout <<"\n";
-	
-	std::cout <<"z \n";
-	std::cout <<z;
-	std::cout <<"\n";
-*/
+	for (uint32_t i=0; i <tags_count; i++){
+		tags_distance[i]=msg_in.tags_distance[i];
+		tags_xc[i]=msg_in.tags_xc[i];
+		tags_yc[i]=msg_in.tags_yc[i];
+		tags_width[i]=msg_in.tags_width[i];
+		tags_height[i]=msg_in.tags_height[i];
+		tags_orientation[i]=msg_in.tags_orientation[i];
+	   }
+}
+
+void Imu_callback(const sensor_msgs::Imu& imu_in)
+{
+	//Take in state of remaining parts of state	
+
+	w_roll=imu_in.angular_velocity.x; //in rads/sec
+	w_pitch=imu_in.angular_velocity.y; //in rads/sec
+	w_yaw=imu_in.angular_velocity.z; //in rads/sec
+}
+
+void get_new_observations(void){
+tag_position[0]=tags_distance[tag_id]*sin(vision_angle[0]);
+tag_position[1]=tags_distance[tag_id]*sin(vision_angle[1]);
+tag_position[2]=tag_position[0]/tan(vision_angle[0]);
+
+z<<tag_position[0],tag_position[1],tag_position[2], //p12
+	vel_x,vel_y,vel_z, //velocity of robot1
+	rotation_roll, rotation_pitch, //rot of robot1
+	w_roll,w_roll; //ang vel of robot1
 }
 
 
@@ -100,10 +157,12 @@ int main(int argc, char** argv)
 	ros::init(argc, argv,"Kalman");
     ros::NodeHandle node;
     ros::Rate loop_rate(100);
-//	ros::Subscriber sub;
-//	ros::Publisher pub;
+	ros::Subscriber nav_sub;
+	ros::Subscriber imu_sub;
+
 	ros::Publisher pub = node.advertise<geometry_msgs::Vector3> ("state", 1);
-	//
+	nav_sub = node.subscribe("/ardrone/navdata", 1, state_callback);
+	imu_sub = node.subscribe("/ardrone/Imu", 1, Imu_callback);
 	
 /*
 //Mass spring damper system
@@ -125,94 +184,110 @@ int g =9.8;
 int k1= 1.0;
 int k2=0.5;
 int k3 =0.5;
+vision_angle[0]=( (((float)(tags_xc[tag_id]-500.0)) /500.0) *cam_width_degree/2.0);
+vision_angle[1]=( (((float)(tags_yc[tag_id]-500.0)) /500.0) *cam_height_degree/2.0);
 
 //A
-A<< 0,0,0, 1,0,0, -1,0,0, 0,0, 0,0, 0,0, 0,0; //first line
-A<< 0,0,0, 0,1,0, 0,-1,0, 0,0, 0,0, 0,0, 0,0; //2nd line
-A<< 0,0,0, 0,0,1, 0,0,-1, 0,0, 0,0, 0,0, 0,0; //3nd line
+A<< 0,0,0, 1,0,0, -1,0,0, 0,0, 0,0, 0,0, 0,0, //first line
+	0,0,0, 0,1,0, 0,-1,0, 0,0, 0,0, 0,0, 0,0, //2nd line
+	0,0,0, 0,0,1, 0,0,-1, 0,0, 0,0, 0,0, 0,0, //3nd line
 
-A<< 0,0,0, 0,0,0,   0,0,0,  0,g, 0,0, 0,0, 0,0; //4 line
-A<< 0,0,0, 0,0,0,   0,0,0, -g,0, 0,0, 0,0, 0,0; //5 line
-A<< 0,0,0, 0,0,-k1, 0,0,0,  0,0, 0,0, 0,0, 0,0; //6 line
+	0,0,0, 0,0,0,   0,0,0,  0,g, 0,0, 0,0, 0,0, //4 line
+	0,0,0, 0,0,0,   0,0,0, -g,0, 0,0, 0,0, 0,0, //5 line
+	0,0,0, 0,0,-k1, 0,0,0,  0,0, 0,0, 0,0, 0,0, //6 line
 
-A<< 0,0,0, 0,0,0, 0,0,0,   0,0,  0,g, 0,0, 0,0; //7 line
-A<< 0,0,0, 0,0,0, 0,0,0,   0,0, -g,0, 0,0, 0,0; //8 line
-A<< 0,0,0, 0,0,0, 0,0,-k1, 0,0,  0,0, 0,0, 0,0; //9 line
+	0,0,0, 0,0,0, 0,0,0,   0,0,  0,g, 0,0, 0,0, //7 line
+	0,0,0, 0,0,0, 0,0,0,   0,0, -g,0, 0,0, 0,0, //8 line
+	0,0,0, 0,0,0, 0,0,-k1, 0,0,  0,0, 0,0, 0,0, //9 line
 
-A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 1,0, 0,0; //10 line
-A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,1, 0,0; //11 line
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 1,0, 0,0, //10 line
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,1, 0,0, //11 line
 
-A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 1,0; //12 line
-A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,1; //13 line
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 1,0, //12 line
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,1, //13 line
 
-A<< 0,0,0, 0,0,0,   0,0,0,  -k2,0,  0,0, k3,0, 0,0; //14
-A<< 0,0,0, 0,0,0,   0,0,0,   0,-k2, 0,0, 0,k3, 0,0; //15
+	0,0,0, 0,0,0,   0,0,0,  -k2,0,  0,0, k3,0, 0,0, //14
+	0,0,0, 0,0,0,   0,0,0,   0,-k2, 0,0, 0,k3, 0,0, //15
 
-A<< 0,0,0, 0,0,0,   0,0,0,  0,0, -k2,0, 0,0, k3,0; //16
-A<< 0,0,0, 0,0,0,   0,0,0,  0,0, 0,-k2, 0,0, 0,k3; //17
+	0,0,0, 0,0,0,   0,0,0,  0,0, -k2,0, 0,0, k3,0, //16
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,-k2, 0,0, 0,k3; //17
+std::cout << "A" << std::endl;
+std::cout << A << std::endl;
+
 
 //B1
-B1<<0,0,0; //1
-B1<<0,0,0; //2
-B1<<0,0,0; //3
+B1<<0,0,0, //1
+	0,0,0, //2
+	0,0,0, //3
 
-B1<<0,0,0; //4
-B1<<0,0,0; //5
-B1<<0,0,k1; //6
+	0,0,0, //4
+	0,0,0, //5
+	0,0,k1, //6
 
-B1<<0,0,0; //7
-B1<<0,0,0; //8
-B1<<0,0,0; //9
+	0,0,0, //7
+	0,0,0, //8
+	0,0,0, //9
 
-B1<<0,0,0; //10
-B1<<0,0,0; //11
+	0,0,0, //10
+	0,0,0, //11
 
-B1<<0,0,0; //12
-B1<<0,0,0; //13
+	0,0,0, //12
+	0,0,0, //13
 
-B1<<k2,0,0; //14
-B1<<0,k2,0; //15
+	k2,0,0, //14
+	0,k2,0, //15
 
-B1<<0,0,0; //16
-B1<<0,0,0; //17
+	0,0,0, //16
+	0,0,0; //17
+std::cout << std::endl;
+std::cout << "B1" << std::endl;
+std::cout << B1 << std::endl;
 
 //B2
-B2<<0,0,0; //1
-B2<<0,0,0; //2
-B2<<0,0,0; //3
+B2<<0,0,0, //1
+	0,0,0, //2
+	0,0,0, //3
 
-B2<<0,0,0; //4
-B2<<0,0,0; //5
-B2<<0,0,0; //6
+	0,0,0, //4
+	0,0,0, //5
+	0,0,0, //6
 
-B2<<0,0,0; //7
-B2<<0,0,0; //8
-B2<<0,0,k1; //9
+	0,0,0, //7
+	0,0,0, //8
+	0,0,k1, //9
 
-B2<<0,0,0; //10
-B2<<0,0,0; //11
+	0,0,0, //10
+	0,0,0, //11
 
-B2<<0,0,0; //12
-B2<<0,0,0; //13
+	0,0,0, //12
+	0,0,0, //13
 
-B2<<0,0,0; //14
-B2<<0,0,0; //15
+	0,0,0, //14
+	0,0,0, //15
 
-B2<<k2,0,0; //16
-B2<<0,k2,0; //17
+	k2,0,0, //16
+	0,k2,0; //17
+std::cout << std::endl;
+std::cout << "B2" << std::endl;
+std::cout << B2 << std::endl;
 
 //H
-H<<1,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0; 
-H<<0,1,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0;
-H<<0,0,1, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0;
+H<< 1,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0, 
+	0,1,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0,
+	0,0,1, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0,
 
-H<<0,0,0, 1,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0; 
-H<<0,0,0, 0,1,0,   0,0,0,  0,0, 0,0, 0,0, 0,0; 
-H<<0,0,0, 0,0,1,   0,0,0,  0,0, 0,0, 0,0, 0,0; 
+	0,0,0, 1,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0, 
+	0,0,0, 0,1,0,   0,0,0,  0,0, 0,0, 0,0, 0,0, 
+	0,0,0, 0,0,1,   0,0,0,  0,0, 0,0, 0,0, 0,0, 
 
-H<<0,0,0, 0,0,0,   0,0,0,  1,0, 0,0, 0,0, 0,0;
-H<<0,0,0, 0,0,0,   0,0,0,  0,1, 0,0, 0,0, 0,0;
-
+	0,0,0, 0,0,0,   0,0,0,  1,0, 0,0, 0,0, 0,0,
+	0,0,0, 0,0,0,   0,0,0,  0,1, 0,0, 0,0, 0,0,
+	
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 1,0, 0,0,
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,1, 0,0;
+std::cout << std::endl;
+std::cout << "H" << std::endl;
+std::cout << H << std::endl;
 
 //I
 I<<Eigen::Matrix<float, dimention_n, dimention_n>::Identity();
@@ -225,8 +300,6 @@ R=Eigen::Matrix<float, dimention_m, dimention_m>::Identity();
 
 //P_old
 P_old=I;
-
-
 
 //u1
 u1<< 0,0,0;
@@ -256,11 +329,13 @@ ROS_INFO("Starting Kalman loop \n");
 		std::cout <<x_minus;
 		std::cout <<"\n";
 		*/
+		
 		P_minus=A*P_old*A.transpose() + Q;
-		get_new_measurements();
-
+		get_new_observations();
+		ROS_INFO("Correction \n");
 		//Correction Step
 		O=H*P_minus*H.transpose()+R;
+	
 		/*
 		std::cout <<"O \n";
 		std::cout <<O;
@@ -282,12 +357,14 @@ ROS_INFO("Starting Kalman loop \n");
 		std::cout <<"\n";
 		*/
 		K=P_minus*H.transpose()*O.inverse();
+			
 		/*
 		std::cout <<"K \n";
 		std::cout <<K;
 		std::cout <<"\n";
 		*/
 		x=x_minus+K*(z-H*x_minus);
+				
 		/*
 		std::cout <<"x \n";
 		std::cout <<x;
@@ -303,7 +380,8 @@ ROS_INFO("Starting Kalman loop \n");
 	    //ROS_INFO("State: %f %f",x(0), x(1));
 	    
 	    x_msg.data.clear(); //clear data
-	    for (int i=0; i<dimention_n+1; i++)
+
+	    for (long int i=1; i<dimention_n; i++)
 	    {
 	    x_msg.data.push_back(x(i));		//fill msg
 		}
@@ -311,113 +389,8 @@ ROS_INFO("Starting Kalman loop \n");
 		
 		x_old=x;
 		P_old=P;
+		u1_old=u1;
+		u2_old=u2;
 		}//while ros ok
 	
 }//main
-
-/*
-Explaination of Kalaman filter (http://forums.udacity.com/questions/1010153/what-are-all-those-matrices-for-the-kalman-filter-part-i-x-f-p-h-r-u)
-Vector x, the variables
-x is the values of all the variables you’re considering in your system. It might, for example, be position and velocity. Or if you were using a Kalman filter to model polling results, it might be Rick Santorum’s support and momentum in Ohio Presidential polls. It might be a sick person’s temperature and how fast the temperature is going up. It’s a vector. Let’s say it has n elements— that will be important for the size of other matrices.
-
-For example, let’s say we’re modeling a sick person’s temperature. She’s lying there in the hospital bed with three temperature sensors stuck to her, and we want to see if her temperature is going up fast, in which case we’ll call a nurse. (For purposes of this example, we’ll assume that in the time period we’re observing, the rate of rise is constant.)
-
-We might initialize x with a temperature of 98.6 and a temperature rising rate of 0. The Kalman filter algorithm will change x—that’s the whole point, to find the correct values for x.
-
-Matrix F, the update matrix
-F is the n by n update matrix. Kalman filters model a system over time. After each tick of time, we predict what the values of x are, and then we measure and do some computation. F is used in the update step. Here’s how it works:
-For each value in x, we write an equation to update that value, a linear equation in all the variables in x. Then we can just read off the coefficients to make the matrix.
-
-For our example, our x vector would be (x1, x2) where x1 is the temperature in degrees and x2 is the rate of change in hundredths of a degree (doesn’t matter whether Celsius or Fahrenheit, just as long as it’s the same for all) per minute. We check our sensors every minute, and update every minute.
-
-Let’s figure out how to make the matrix F. If our patient's temperature is x1, what is it one minute later? It’s x1, the old temperature, plus the change. Note that because temperature is in degrees but the change is in hundredths of degrees, we have to put in the coefficient of 1/100.
-
-x[1]' = x[1] + x[2]/100
-If the rate of change is x2, what is it one minute later? Still x2, because we’ve assumed the rate is constant.
-
-x[2]' = 0x[1] + x[2]
-Now we write out all our equations, like this:
-
-x[1]' = x[1] + x[2]/100
-x[2]' = 0x[1] + x[2]
-In words, the new temperature, x1', is the old temperature plus the rise over the time segment. The new rate of change, x2', is the same as the old rate of change. We can just read off the coefficients of the right hand side, and there’s our matrix F:
-
-1 .01
-0 1
-Bingo. Note that these equations have to be linear equations in the variables. We might want to take the sine of a variable, or square it, or multiply two variables together. We can’t, though, not in a Kalman filter. These are linear equations.
-
-z, the measurement vector
-Now let’s turn to z, the measurement vector. It’s just the outputs from the sensors. Simple. Let’s say we have m sensors. That could be, and probably is, different from n, the number of variables we’re keeping track of. In our example, let’s say we have three temperature probes, all somewhat inaccurate.
-
-H, the extraction matrix
-The matrix H tells us what sensor readings we’d get if x were the true state of affairs and our sensors were perfect. It’s the matrix we use to extract the measurement from the data. If we multiply H times a perfectly correct x, we get a perfectly correct z.
-
-So let’s figure out what z1, z2 and z3, the readings from our three temperature sensors, would be if we actually knew the patient’s temperature and rate of temperature rising, and our sensors were perfect. Again, we just write out our equations:
-
-z1 = x1 + 0x2
-z2 = x1 + 0x2
-z3 = x1 + 0x2
-because if we knew the patients real temperature, and our sensors perfectly measured that temperature, z1 would be the same as x1 and so would z2 and z3.
-Again, we just read off the coefficients to make H:
-
-1 0
-1 0
-1 0
-Remember F, the update matrix, is n by n. Notice that H, the extraction matrix, is m by n. When we multiply H by x, we get a vector of size m.
-
-P, the covariance matrix of x
-P is the covariance matrix of the vector x. x is a vector of dimension n, so P is n by n. Down the diagonal of P, we find the variances of the elements of x: the bigger the number, the bigger our window of uncertainty for that element. On the off diagonals, at P[i][j], we find the covariances of x[i] with x[j]. Covariance matrices must be symmetric matrices, because the covariance of x[i] and x[j] is also the covariance of x[j] and x[i], so P[i][j]==P[j][i]. That is, the whole thing is symmetric down the main diagonal.
-
-P gets updated as we run our Kalman filter and become more certain of the value of the x vector.
-For the patient example, we start out pretty uncertain. We’ll give pretty big variances to both x1, the temperature, and x2, the rate of change in temperature. We don’t have any notion that temperature and rise in temperature are correlated, so we’ll make the covariance 0. So the matrix will look like
-
-3 0
-0 .1
-R, the covariance matrix of the measurement vector z
-R is also a covariance matrix, but it’s the variances and covariances of our sensor measurements. Because z has dimension m, R is an m by m matrix. 
-The Kalman filter algorithm does not change R, because the process can’t change our belief about the accuracy of our sensors—that’s a property of the sensors themselves. We know the variance of our sensor either by testing it, or by reading the documentation that came with it, or something like that. Note that the covariances here are the covariances of the measurement error. A positive number means that if the first sensor is erroneously low, the second tends to be erroneously low, or if the first reads high, the second tends to read high; it doesn’t mean that if the first sensor reports a high number the second will also report a high number.
-
-In our patient example, the three sensors are measuring exactly the same thing. So of course, their readings will be correlated. But, let’s say that any two sensors don’t tend to be off the same way— the inaccuracy is caused by cheap manufacturing techniques, not by something about the patient. In that case, we’d give them covariances of zero. Our sensors, let’s say, have variances of .2; they’re not very accurate. So our covariance matrix might look like:
-
-    .2 0  0
-    0 .2 0
-    0 0 .2
-But if we knew that the measurements from the three sensors tended to be off in the same direction—maybe all of them read low if a fan is blowing in the room, and high if music is playing—then we’d put positive covariances for them:
-
-.2 .05 .05
-.05 .2 .05
-.05 .05 .2
-u, the move vector
-The last input matrix is the vector u. This one is pretty simple; it’s the control input, the move vector. It’s the change to x that we cause, or that we know is happening. Since we add it to x, it has dimension n. When the filter updates, it adds u to the new x.
-
-I can’t think of a good example using our patient and our thermometers, but suppose we were modeling the location and velocity of an object, and in addition to watching it move, we could also give it a shove. In the prediction stage, we’d update the object’s location based on our velocity, but then with u we’d add to its position and velocity because we moved it. u can change for each iteration of the Kalman filter. In our examples in class, it’s always all zeros; we’re not moving anything ourselves, just watching it move.
-
-This is part I of an explanation of all the matrices in the Kalman filter. I'm writing it up for myself to see if I understand what's going on. This is very much a work in progress and needs proofreading. Part II (sketchy right now) covers S, K and y. Part III has some general comments about how the Kalman filter works, what kind of problems it works for, and what kind of problems it doesn't work for.
-
-Added by @jasa:
-
-The State Variable Model
-IMHO Sebastian should have introduced the State Variable Model (SVM) which underlies the Kalman Filter. Here goes my contribution to this already nice wiki description of the KF as shown in our unit and homework.
-
-One of the most important models for describing dynamic discrete or discretized systems is the SVM. The SVM consists in a couple of equations: the state equation
-
-x(k) = F x(k-1) + B u(k-1)
-
-where F is the state transition matrix, and the measurement or output equation
-
-y(k) = H x(k)
-
-The names of vectors and matrices follow those used by Sebastian, although they are not the standard in the SVM (which are A, B, C and D matrices). Sebastian has discarded u(k) (and implicitely considered B=Identity) since it puts it at zero. The vector x holds the state variables (2D positions and velocities in our unit).
-
-The Kalman filter applies to the SVM with the addition of one vector to each of the equations, which represent the Gaussian uncertainty in the state equation, w(k), and in the measurement, v(k). Thus:
-
-x(k) = F x(k-1) + u(k-1) + w(k-1)
-
-y(k) = H x(k) + v(k)
-
-Sebastian postulated no uncertainity at system level, so w(k) and its covarianve matrix don't appear in the Kalman filter equations taught in this unit, but v(k) appears, and its covariance matrix is our matrix R.
-
-Kalman deduced, from the SVM, the "best" possible estimator (in the sense of the minimum variance estimator) of the output variable in each step, y(k), and the Kalman filter equations were born. You can find the deduction of the KF equations in many books and papers around the Web.
-
-So, to conclude, our KF equations are based in the SVM which can describe almost all dynamic systems (discrete, in our case). Also, since we are iteratively updating the vectors and matrices inside the measurements loop, using the same data structures, the time iteration index, k, disappears from our implementation.
-*/

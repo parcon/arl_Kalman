@@ -11,6 +11,9 @@
   <depend package="eigen"/>
   <depend package="roscpp"/>
   <depend package="geometry_msgs"/>
+  <depend package="sensor_msgs"/>
+  <depend package="ardrone_autonomy"/>
+  
 
 </package>
 
