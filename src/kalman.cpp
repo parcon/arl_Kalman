@@ -21,7 +21,7 @@ v is measurement white noise ~ N(0,R)
 */
 
 #include <ros/ros.h>
-#include <geometry_msgs/Vector3.h>
+//#include <geometry_msgs/Vector3.h>
 #include <Eigen/Dense>
 #include <std_msgs/Float32MultiArray.h>
 #include <geometry_msgs/Point.h>
@@ -64,13 +64,14 @@ control_vector u1_old;
 control_vector u2;
 control_vector u2_old;
 
+//Eigen::Vector17f x;
+//Eigen::Vector17f x_minus;
+//Eigen::Vector17f x_old;
 State_vector x_minus;
 State_vector x;
 State_vector x_old;
-geometry_msgs::Vector3 msg;
 
 std_msgs::Float32MultiArray x_msg;
-
 float deg2rad= 0.0174532925;
 float rotation_roll =0.0;
 float rotation_pitch =0.0;
@@ -159,8 +160,9 @@ int main(int argc, char** argv)
     ros::Rate loop_rate(100);
 	ros::Subscriber nav_sub;
 	ros::Subscriber imu_sub;
-
-	ros::Publisher pub = node.advertise<geometry_msgs::Vector3> ("state", 1);
+	ros::Publisher state_pub;
+	
+	state_pub = node.advertise<std_msgs::Float32MultiArray> ("state_post_KF", 1);
 	nav_sub = node.subscribe("/ardrone/navdata", 1, state_callback);
 	imu_sub = node.subscribe("/ardrone/Imu", 1, Imu_callback);
 	
@@ -313,11 +315,6 @@ u2<< 0,0,0;
 //u2_old
 u2_old<< 0,0,0;
 
-//x_msg
-x_msg.data.clear();
-//x_msg.data.size =dimention_n;
-
-
 ROS_INFO("Starting Kalman loop \n");
 	
 	while (ros::ok()){
@@ -379,18 +376,27 @@ ROS_INFO("Starting Kalman loop \n");
 		//Next step
 	    //ROS_INFO("State: %f %f",x(0), x(1));
 	    
-	    x_msg.data.clear(); //clear data
-
-	    for (long int i=1; i<dimention_n; i++)
+	    std::cout <<"x"<<std::endl;
+		std::cout << x << std::endl;
+	    
+	 	x_msg.data.clear(); //clear data
+		float move =0.0;
+	    for (long int i=0; i<dimention_n; i++)
 	    {
-	    x_msg.data.push_back(x(i));		//fill msg
+		move=x[i];
+		x_msg.data.push_back(move);	    		//fill msg
 		}
-		pub.publish(msg); //publish message
+		
+		std::cout << x_msg << std::endl;
+		state_pub.publish(x_msg); //publish message
 		
 		x_old=x;
 		P_old=P;
 		u1_old=u1;
 		u2_old=u2;
+		ros::spinOnce();
+		loop_rate.sleep();
 		}//while ros ok
+		
 	
 }//main
