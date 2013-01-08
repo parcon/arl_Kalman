@@ -104,7 +104,6 @@ float tags_orientation[10];
 float tags_distance[10];
 double time_stamp;
 
-
 void state_callback(const ardrone_autonomy::Navdata& msg_in)
 {
 	//Take in state of robot that we are interested in
@@ -128,6 +127,8 @@ void state_callback(const ardrone_autonomy::Navdata& msg_in)
 		tags_height[i]=msg_in.tags_height[i];
 		tags_orientation[i]=msg_in.tags_orientation[i];
 	   }
+	vision_angle[0]=( (((float)(tags_xc[tag_id]-500.0)) /500.0) *cam_width_degree/2.0);
+	vision_angle[1]=( (((float)(tags_yc[tag_id]-500.0)) /500.0) *cam_height_degree/2.0);
 }
 
 void Imu_callback(const sensor_msgs::Imu& imu_in)
@@ -140,20 +141,33 @@ void Imu_callback(const sensor_msgs::Imu& imu_in)
 }
 
 void get_new_observations(void){
-tag_position[0]=tags_distance[tag_id]*sin(vision_angle[0]);
-tag_position[1]=tags_distance[tag_id]*sin(vision_angle[1]);
-tag_position[2]=tag_position[0]/tan(vision_angle[0]);
+tag_position[0]=0.1*tags_distance[tag_id]*sin(vision_angle[0]);//y direction
+tag_position[1]=0.1*tags_distance[tag_id]*sin(vision_angle[1]);//z direction
+tag_position[2]=0.1*tag_position[0]/tan(vision_angle[0]);//distance away
+tags_distance[0]=0.1*tags_distance[0]; //to meters
+/*
+tag_position[1]=tag_position[1]-tag_position[2]*sin(rotation_pitch); //correct for pitch of camera
+if (tag_position[0]>0)
+{tag_position[1]=tag_position[1]+tag_position[2]*sin(rotation_roll);
+}
+else
+{tag_position[1]=tag_position[1]-tag_position[2]*sin(rotation_pitch);
+}
+*/
 
-z<<tag_position[0],tag_position[1],tag_position[2], //p12
+z<<tags_distance[0]*0.1,tag_position[0],tag_position[1], //p12 tags_distance replaced tag_position[2]
 	vel_x,vel_y,vel_z, //velocity of robot1
 	rotation_roll, rotation_pitch, //rot of robot1
 	w_roll,w_roll; //ang vel of robot1
+//std::cout << "z" << std::endl;
+//std::cout << z << std::endl;
+//z<<0,0,0,0,0,0,0,0,0,0;
 }
 
 
 int main(int argc, char** argv)
 {
-//ROS stuff
+	//ROS stuff
 	ROS_INFO("Starting Kalman");
 	ros::init(argc, argv,"Kalman");
     ros::NodeHandle node;
@@ -164,30 +178,13 @@ int main(int argc, char** argv)
 	
 	state_pub = node.advertise<std_msgs::Float32MultiArray> ("state_post_KF", 1);
 	nav_sub = node.subscribe("/ardrone/navdata", 1, state_callback);
-	imu_sub = node.subscribe("/ardrone/Imu", 1, Imu_callback);
+	imu_sub = node.subscribe("/ardrone/imu", 1, Imu_callback);
 	
-/*
-//Mass spring damper system
-float k=1;
-float m=10;
-float d=0;
-
-
-A<< d/m,-k/m,0,1;
-B<<1/m,0;
-H<<1,0,0,0; //is this C?
-u_old<<0;
-x_old<< 1,0;
-Q<<.1,0,.1,0;
-P_old<<.1,0,.1,0;
-R<<1,0,0,1;
-*/	
-int g =9.8;
-int k1= 1.0;
-int k2=0.5;
-int k3 =0.5;
-vision_angle[0]=( (((float)(tags_xc[tag_id]-500.0)) /500.0) *cam_width_degree/2.0);
-vision_angle[1]=( (((float)(tags_yc[tag_id]-500.0)) /500.0) *cam_height_degree/2.0);
+	int g=  9.8;
+	int k1= 1.0;
+	int k2= 0.5;
+	int k3= 0.5;
+	
 
 //A
 A<< 0,0,0, 1,0,0, -1,0,0, 0,0, 0,0, 0,0, 0,0, //first line
@@ -321,79 +318,42 @@ ROS_INFO("Starting Kalman loop \n");
 			
 		//Prediction Step
 		x_minus=A*x_old+B1*u1_old+B2*u2_old;
-		/*
-		std::cout <<"x minus \n";
-		std::cout <<x_minus;
-		std::cout <<"\n";
-		*/
+		
+	//	std::cout <<"x-"<<std::endl;
+	//	std::cout << x_minus << std::endl;
 		
 		P_minus=A*P_old*A.transpose() + Q;
+		
+	//	std::cout <<"p-"<<std::endl;
+	//	std::cout << P_minus << std::endl;
+		
 		get_new_observations();
-		ROS_INFO("Correction \n");
+
 		//Correction Step
 		O=H*P_minus*H.transpose()+R;
-	
-		/*
-		std::cout <<"O \n";
-		std::cout <<O;
-		std::cout <<"\n";
-		std::cout <<"O.inv \n";
-		std::cout <<O.inverse();
-		std::cout <<"\n";
-		std::cout <<"H \n";
-		std::cout <<H;
-		std::cout <<"\n";
-		std::cout <<"H.trans \n";
-		std::cout <<H.transpose();
-		std::cout <<"\n";
-		std::cout <<"P- * H.trans \n";
-		std::cout <<P_minus*H.transpose();
-		std::cout <<"\n";
-		std::cout <<"P- * H.trans \n";
-		std::cout <<P_minus*H.transpose();
-		std::cout <<"\n";
-		*/
 		K=P_minus*H.transpose()*O.inverse();
-			
-		/*
-		std::cout <<"K \n";
-		std::cout <<K;
-		std::cout <<"\n";
-		*/
 		x=x_minus+K*(z-H*x_minus);
-				
-		/*
-		std::cout <<"x \n";
-		std::cout <<x;
-		std::cout <<"\n";
-		*/
 		P=(I-K*H)*P_minus;
-		/*
-		std::cout <<"P \n";
-		std::cout <<P;
-		std::cout <<"\n";
-		*/
-		//Next step
-	    //ROS_INFO("State: %f %f",x(0), x(1));
-	    
-	    std::cout <<"x"<<std::endl;
+
+		std::cout <<"x"<<std::endl;
 		std::cout << x << std::endl;
 	    
 	 	x_msg.data.clear(); //clear data
 		float move =0.0;
 	    for (long int i=0; i<dimention_n; i++)
-	    {
-		move=x[i];
-		x_msg.data.push_back(move);	    		//fill msg
-		}
+			{
+			move=x[i];
+			x_msg.data.push_back(move);//fill msg
+			}
 		
-		std::cout << x_msg << std::endl;
+//		std::cout << x_msg << std::endl;
 		state_pub.publish(x_msg); //publish message
 		
 		x_old=x;
 		P_old=P;
 		u1_old=u1;
 		u2_old=u2;
+		
 		ros::spinOnce();
 		loop_rate.sleep();
 		}//while ros ok
