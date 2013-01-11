@@ -44,6 +44,8 @@ State_vector x;
 State_vector x_old;
 ////////////////////////////////
 
+void init_matrix(void){
+
 //part two
 	int g=  9.8;
 	int k1= 1.0;
@@ -176,3 +178,6 @@ u2<< 0,0,0;
 
 //u2_old
 u2_old<< 0,0,0;
+
+}//end matrix setup
+
