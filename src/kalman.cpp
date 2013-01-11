@@ -105,8 +105,9 @@ void Imu_callback(const sensor_msgs::Imu& imu_in)
 	w_yaw=imu_in.angular_velocity.z; //in rads/sec
 }
 
-void get_new_observations(void){
+void get_new_residual_and_H(void){
 
+	//UPDATE Z
 	//z = [ux uy d vx1 vy1 vz1 rp1 rr1 wp1 wr1]T
 	z(0)=( (((float)(tags_xc[tag_id]-500.0)) /500.0) *cam_width_degree/2.0);
 	z(1)=( (((float)(tags_yc[tag_id]-500.0)) /500.0) *cam_height_degree/2.0);
@@ -117,12 +118,10 @@ void get_new_observations(void){
 	z(6)=rotation_pitch;
 	z(7)= rotation_roll;
 	z(8)=w_pitch;
-	z(9)=w_roll;
-}
+	z(9)=w_roll; 
 
-void get_new_residual_and_H(void){
-
-	get_new_observations(); //UPDATE Z
+//PARCON TEST VECTOR
+z<<1,1,1.4, 0,0,0, 0,0, 0,0;
 
 	x12_hat=x_minus(0);//estamate of position between rotors
 	y12_hat=x_minus(1);
@@ -143,7 +142,28 @@ void get_new_residual_and_H(void){
 	float xyz=pow(x12_hat,2)+pow(y12_hat,2)+pow(z12_hat,2);
 	float sq_xyz=pow(xyz,0.5);
 
-	//in the form y= new observation minus nonlinear model
+
+
+	std::cout <<"z"<<std::endl;
+	std::cout << z << std::endl;
+
+	std::cout <<"	x12_hat"<<std::endl;
+	std::cout <<	x12_hat << std::endl;
+	
+	std::cout <<"	sq_xyz"<<std::endl;
+	std::cout <<	sq_xyz << std::endl;
+
+	std::cout <<"	asin(x12_hat/sq_xyz)"<<std::endl;
+	std::cout <<	asin(x12_hat/sq_xyz)  << std::endl;
+
+	std::cout <<"y"<<std::endl;
+	std::cout << y << std::endl;
+
+
+
+//in the form y= new observation minus nonlinear model
+
+	
 	y(0)=z(0)-asin(x12_hat/sq_xyz)-rp1_hat; //error in ux
 	y(1)=z(1)-asin(y12_hat/sq_xyz)-rr1_hat; //error in uy
 	y(2)=z(2)-sq_xyz; //error in distance away
@@ -156,32 +176,14 @@ void get_new_residual_and_H(void){
 	y(7)=z(7)- rr1_hat; //error in roll of quad1
 	y(8)=z(8)- wp1_hat; //error in ang vel pitch of quad1
 	y(9)=z(9)- wp1_hat; //error in ang vel roll of quad1
-//}
 
-//void get_new_H(void){
-	//This function solves for H at the current linearization point, which is the latest predicted state (x_minus)
-/*
-	x12_hat=x_minus(0);//estamate of position between rotors
-	y12_hat=x_minus(1);
-	z12_hat=x_minus(2);
-	vx1_hat=x_minus(3); //estimate of velocity quad1
-	vy1_hat=x_minus(4);
-	vz1_hat=x_minus(5);
-	//x_minus(6);
-	//x_minus(7);
-	//x_minus(8);
-	rp1_hat=x_minus(9);//estimate of pitch quad1
-	rr1_hat=x_minus(10);//estimate of roll quad1
-	//x_minus(11);
-	//x_minus(12);
-	wp1_hat=x_minus(13);//estimate of ang velocity roll quad1
-	wr1_hat=x_minus(14);//estimate of ang velocity roll quad1
-*/
-//	float xyz=pow(x12_hat,2)+pow(y12_hat,2)+pow(z12_hat,2); //repeat
-//	float sq_xyz=pow(xyz,0.5); //repeat
+
+//Build the H matrix 
 	float three_halfs_xyz=pow(xyz,1.5);
 	float x12_hat2=pow(x12_hat,2.0);
 	float y12_hat2=pow(y12_hat,2.0);
+	
+	
 	
 	//z = [ux uy d vx1 vy1 vz1 rp1 rr1 wp1 wr1]T
 	//H 1st row (ux)
@@ -207,9 +209,12 @@ void get_new_residual_and_H(void){
 	H(1,10)=duy_drr;
 	
 	//H 3rd row (d)
-	float dd_dx=pow(x12_hat/xyz,0.5);
-	float dd_dy=pow(y12_hat/xyz,0.5);
-	float dd_dz=pow(z12_hat/xyz,0.5);
+	float dd_dx=x12_hat/sq_xyz;
+	float dd_dy=y12_hat/sq_xyz;
+	float dd_dz=z12_hat/sq_xyz;
+
+	std::cout <<"dd_dx"<<std::endl;
+	std::cout << dd_dx << std::endl;
 
 	H(2,0)=dd_dx; 
 	H(2,1)=dd_dy; 
@@ -218,8 +223,6 @@ void get_new_residual_and_H(void){
 	//Rest of the H matrix is just composed of ones and zeros.
 	//ones on matching terms aka: dvx1/dvx1, dvy1/dvy1
 	//zeros elsewhere
-	
-	
 }
 
 
@@ -238,8 +241,8 @@ int main(int argc, char** argv)
 	nav_sub = node.subscribe("/ardrone/navdata", 1, state_callback);
 	imu_sub = node.subscribe("/ardrone/imu", 1, Imu_callback);
 	
-//Matrix part two taken from here PARCON
-	init_matrix();
+
+	init_matrix(); //Initilize matrix
 
 	ROS_INFO("Starting Kalman loop \n");
 	
@@ -247,8 +250,18 @@ int main(int argc, char** argv)
 			
 		//Prediction Step
 		x_minus=A*x_old+B1*u1_old+B2*u2_old;
+		
+		std::cout << "A" << std::endl;
+		std::cout << A << std::endl;
+		
+		std::cout <<"x_minus"<<std::endl;
+		std::cout << x_minus << std::endl;
+		
 		P_minus=A*P_old*A.transpose() + Q;
 		get_new_residual_and_H();
+		
+		std::cout <<"H"<<std::endl;
+		std::cout << H << std::endl;
 		
 		//Correction Step
 		O=H*P_minus*H.transpose()+R;
