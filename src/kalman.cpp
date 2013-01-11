@@ -21,55 +21,14 @@ v is measurement white noise ~ N(0,R)
 */
 
 #include <ros/ros.h>
-//#include <geometry_msgs/Vector3.h>
 #include <Eigen/Dense>
 #include <std_msgs/Float32MultiArray.h>
 #include <geometry_msgs/Point.h>
 #include <sensor_msgs/Imu.h>
 #include <ardrone_autonomy/Navdata.h>
+#include <kalman.h>
 
-const int dimention_n = 17;
-const int dimention_m= 10;
-const int dimention_l= 3;
-
-
-typedef Eigen::Matrix<float,dimention_n,1> State_vector;
-typedef Eigen::Matrix<float,dimention_l,1> control_vector;
-typedef Eigen::Matrix<float,dimention_m,1> obs_vector;
-
-typedef Eigen::Matrix<float, dimention_n, dimention_n> dynamics_model;
-typedef Eigen::Matrix<float, dimention_n, dimention_l> control_model;
-typedef Eigen::Matrix<float, dimention_m, dimention_n> state_to_obs;
-typedef Eigen::Matrix<float, dimention_n, dimention_m> obs_to_state;
-typedef Eigen::Matrix<float, dimention_n, dimention_n> error_cov;
-typedef Eigen::Matrix<float, dimention_m, dimention_m> measurement_error_cov;
-
-error_cov I;
-obs_to_state K;
-state_to_obs H;
-control_model B1;
-control_model B2;
-dynamics_model A;
-error_cov Q;
-error_cov P;
-error_cov P_old;
-error_cov P_minus;
-measurement_error_cov R;
-measurement_error_cov O;
-
-obs_vector n;
-obs_vector z;
-control_vector u1;
-control_vector u1_old;
-control_vector u2;
-control_vector u2_old;
-
-//Eigen::Vector17f x;
-//Eigen::Vector17f x_minus;
-//Eigen::Vector17f x_old;
-State_vector x_minus;
-State_vector x;
-State_vector x_old;
+//Matrix part one taken from here PARCON
 
 std_msgs::Float32MultiArray x_msg;
 float deg2rad= 0.0174532925;
@@ -85,8 +44,6 @@ float w_yaw=0.0;
 
 
 int tag_id =0;//CHANGES WHICH TAG TO DISPLAY
-//int had_message =0;
-//int drone_state;
 float vision_angle[2];
 float tag_position[3];
 int cam_height=360;
@@ -106,10 +63,10 @@ double time_stamp;
 
 void state_callback(const ardrone_autonomy::Navdata& msg_in)
 {
-	//Take in state of robot that we are interested in
+	//Take in states of robot that we are interested in from the navdata topic
 	rotation_roll=msg_in.rotX*deg2rad;
 	rotation_pitch=msg_in.rotY*deg2rad;
-	rotation_yaw=msg_in.rotZ*deg2rad;
+//	rotation_yaw=msg_in.rotZ*deg2rad;
 	
 	vel_x=msg_in.vx*0.001; //  mm/s to m/s
 	vel_y=msg_in.vy*0.001; //  mm/s to m/s
@@ -127,13 +84,11 @@ void state_callback(const ardrone_autonomy::Navdata& msg_in)
 		tags_height[i]=msg_in.tags_height[i];
 		tags_orientation[i]=msg_in.tags_orientation[i];
 	   }
-	vision_angle[0]=( (((float)(tags_xc[tag_id]-500.0)) /500.0) *cam_width_degree/2.0);
-	vision_angle[1]=( (((float)(tags_yc[tag_id]-500.0)) /500.0) *cam_height_degree/2.0);
 }
 
 void Imu_callback(const sensor_msgs::Imu& imu_in)
 {
-	//Take in state of remaining parts of state	
+	//Take in state of remaining parts of state from the imu topic	
 
 	w_roll=imu_in.angular_velocity.x; //in rads/sec
 	w_pitch=imu_in.angular_velocity.y; //in rads/sec
@@ -141,27 +96,80 @@ void Imu_callback(const sensor_msgs::Imu& imu_in)
 }
 
 void get_new_observations(void){
-tag_position[0]=0.1*tags_distance[tag_id]*sin(vision_angle[0]);//y direction
-tag_position[1]=0.1*tags_distance[tag_id]*sin(vision_angle[1]);//z direction
-tag_position[2]=0.1*tag_position[0]/tan(vision_angle[0]);//distance away
-tags_distance[0]=0.1*tags_distance[0]; //to meters
-/*
-tag_position[1]=tag_position[1]-tag_position[2]*sin(rotation_pitch); //correct for pitch of camera
-if (tag_position[0]>0)
-{tag_position[1]=tag_position[1]+tag_position[2]*sin(rotation_roll);
-}
-else
-{tag_position[1]=tag_position[1]-tag_position[2]*sin(rotation_pitch);
-}
-*/
 
-z<<tags_distance[0]*0.1,tag_position[0],tag_position[1], //p12 tags_distance replaced tag_position[2]
-	vel_x,vel_y,vel_z, //velocity of robot1
-	rotation_roll, rotation_pitch, //rot of robot1
-	w_roll,w_roll; //ang vel of robot1
-//std::cout << "z" << std::endl;
-//std::cout << z << std::endl;
-//z<<0,0,0,0,0,0,0,0,0,0;
+	//z = [ux uy d vx1 vy1 vz1 rp1 rr1 wp1 wr1]T
+	z(0)=( (((float)(tags_xc[tag_id]-500.0)) /500.0) *cam_width_degree/2.0);
+	z(1)=( (((float)(tags_yc[tag_id]-500.0)) /500.0) *cam_height_degree/2.0);
+	z(2)=0.1*tags_distance[0]; // cm to meters
+	z(3)=vel_x;
+	z(4)=vel_y;
+	z(5)=vel_z;
+	z(6)=rotation_pitch;
+	z(7)= rotation_roll;
+	z(8)=w_pitch;
+	z(9)=w_roll;
+}
+
+void get_new_residual(void){
+
+	get_new_observations(); //UPDATE Z
+
+	x12_hat=x_minus(0);//estamate of position between rotors
+	y12_hat=x_minus(1);
+	z12_hat=x_minus(2);
+	vx1_hat=x_minus(3); //estimate of velocity quad1
+	vy1_hat=x_minus(4);
+	vz1_hat=x_minus(5);
+	//x_minus(6);
+	//x_minus(7);
+	//x_minus(8);
+	rp1_hat=x_minus(9);//estimate of pitch quad1
+	rr1_hat=x_minus(10);//estimate of roll quad1
+	//x_minus(11);
+	//x_minus(12);
+	wp1_hat=x_minus(13);//estimate of ang velocity roll quad1
+	wr1_hat=x_minus(14);//estimate of ang velocity roll quad1
+
+	d=sqrt(x12_hat^2+y12_hat^2+z12_hat^2);
+
+	//in the form y= new observation minus nonlinear model
+	y(0)=z(0)-asin(x12_hat/d)-rp1_hat; //error in ux
+	y(1)=z(1)-asin(y12_hat/d)-rr1_hat; //error in uy
+	y(2)=z(2)-d; //error in distance away
+
+	//linear parts
+	y(3)=z(3)- vx1_hat; //error in vx of quad1
+	y(4)=z(4)- vy1_hat; //error in vy of quad1
+	y(5)=z(5)- vz1_hat; //error in vz of quad1
+	y(6)=z(6)- rp1_hat; //error in pitch of quad1
+	y(7)=z(7)- rr1_hat; //error in roll of quad1
+	y(8)=z(8)- wp1_hat; //error in ang vel pitch of quad1
+	y(9)=z(9)- wp1_hat; //error in ang vel roll of quad1
+}
+
+void get_new_H(void){
+	//This function solves for H at the current linearization point, which is the latest predicted state (x_minus)
+
+	x12_hat=x_minus(0);//estamate of position between rotors
+	y12_hat=x_minus(1);
+	z12_hat=x_minus(2);
+	vx1_hat=x_minus(3); //estimate of velocity quad1
+	vy1_hat=x_minus(4);
+	vz1_hat=x_minus(5);
+	//x_minus(6);
+	//x_minus(7);
+	//x_minus(8);
+	rp1_hat=x_minus(9);//estimate of pitch quad1
+	rr1_hat=x_minus(10);//estimate of roll quad1
+	//x_minus(11);
+	//x_minus(12);
+	wp1_hat=x_minus(13);//estimate of ang velocity roll quad1
+	wr1_hat=x_minus(14);//estimate of ang velocity roll quad1
+
+	float xyz=x12_hat^2+y12_hat^2+z12_hat^2;
+	
+)	float dux_dx = - (((x12_hat^2)/(xyz)^(3/2)) + 1/(xyz)^(1/2))/((1- (x12_hat^2)/(xyz))^(1/2));
+
 }
 
 
@@ -180,159 +188,21 @@ int main(int argc, char** argv)
 	nav_sub = node.subscribe("/ardrone/navdata", 1, state_callback);
 	imu_sub = node.subscribe("/ardrone/imu", 1, Imu_callback);
 	
-	int g=  9.8;
-	int k1= 1.0;
-	int k2= 0.5;
-	int k3= 0.5;
-	
+//Matrix part two taken from here PARCON
 
-//A
-A<< 0,0,0, 1,0,0, -1,0,0, 0,0, 0,0, 0,0, 0,0, //first line
-	0,0,0, 0,1,0, 0,-1,0, 0,0, 0,0, 0,0, 0,0, //2nd line
-	0,0,0, 0,0,1, 0,0,-1, 0,0, 0,0, 0,0, 0,0, //3nd line
-
-	0,0,0, 0,0,0,   0,0,0,  0,g, 0,0, 0,0, 0,0, //4 line
-	0,0,0, 0,0,0,   0,0,0, -g,0, 0,0, 0,0, 0,0, //5 line
-	0,0,0, 0,0,-k1, 0,0,0,  0,0, 0,0, 0,0, 0,0, //6 line
-
-	0,0,0, 0,0,0, 0,0,0,   0,0,  0,g, 0,0, 0,0, //7 line
-	0,0,0, 0,0,0, 0,0,0,   0,0, -g,0, 0,0, 0,0, //8 line
-	0,0,0, 0,0,0, 0,0,-k1, 0,0,  0,0, 0,0, 0,0, //9 line
-
-	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 1,0, 0,0, //10 line
-	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,1, 0,0, //11 line
-
-	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 1,0, //12 line
-	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,1, //13 line
-
-	0,0,0, 0,0,0,   0,0,0,  -k2,0,  0,0, k3,0, 0,0, //14
-	0,0,0, 0,0,0,   0,0,0,   0,-k2, 0,0, 0,k3, 0,0, //15
-
-	0,0,0, 0,0,0,   0,0,0,  0,0, -k2,0, 0,0, k3,0, //16
-	0,0,0, 0,0,0,   0,0,0,  0,0, 0,-k2, 0,0, 0,k3; //17
-std::cout << "A" << std::endl;
-std::cout << A << std::endl;
-
-
-//B1
-B1<<0,0,0, //1
-	0,0,0, //2
-	0,0,0, //3
-
-	0,0,0, //4
-	0,0,0, //5
-	0,0,k1, //6
-
-	0,0,0, //7
-	0,0,0, //8
-	0,0,0, //9
-
-	0,0,0, //10
-	0,0,0, //11
-
-	0,0,0, //12
-	0,0,0, //13
-
-	k2,0,0, //14
-	0,k2,0, //15
-
-	0,0,0, //16
-	0,0,0; //17
-std::cout << std::endl;
-std::cout << "B1" << std::endl;
-std::cout << B1 << std::endl;
-
-//B2
-B2<<0,0,0, //1
-	0,0,0, //2
-	0,0,0, //3
-
-	0,0,0, //4
-	0,0,0, //5
-	0,0,0, //6
-
-	0,0,0, //7
-	0,0,0, //8
-	0,0,k1, //9
-
-	0,0,0, //10
-	0,0,0, //11
-
-	0,0,0, //12
-	0,0,0, //13
-
-	0,0,0, //14
-	0,0,0, //15
-
-	k2,0,0, //16
-	0,k2,0; //17
-std::cout << std::endl;
-std::cout << "B2" << std::endl;
-std::cout << B2 << std::endl;
-
-//H
-H<< 1,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0, 
-	0,1,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0,
-	0,0,1, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0,
-
-	0,0,0, 1,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,0, 
-	0,0,0, 0,1,0,   0,0,0,  0,0, 0,0, 0,0, 0,0, 
-	0,0,0, 0,0,1,   0,0,0,  0,0, 0,0, 0,0, 0,0, 
-
-	0,0,0, 0,0,0,   0,0,0,  1,0, 0,0, 0,0, 0,0,
-	0,0,0, 0,0,0,   0,0,0,  0,1, 0,0, 0,0, 0,0,
-	
-	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 1,0, 0,0,
-	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,1, 0,0;
-std::cout << std::endl;
-std::cout << "H" << std::endl;
-std::cout << H << std::endl;
-
-//I
-I<<Eigen::Matrix<float, dimention_n, dimention_n>::Identity();
-
-//Q
-Q=I;
-
-//R
-R=Eigen::Matrix<float, dimention_m, dimention_m>::Identity();
-
-//P_old
-P_old=I;
-
-//u1
-u1<< 0,0,0;
-
-//u1_old
-u1_old<< 0,0,0;
-
-//u2
-u2<< 0,0,0;
-
-//u2_old
-u2_old<< 0,0,0;
-
-ROS_INFO("Starting Kalman loop \n");
+	ROS_INFO("Starting Kalman loop \n");
 	
 	while (ros::ok()){
 			
 		//Prediction Step
 		x_minus=A*x_old+B1*u1_old+B2*u2_old;
-		
-	//	std::cout <<"x-"<<std::endl;
-	//	std::cout << x_minus << std::endl;
-		
 		P_minus=A*P_old*A.transpose() + Q;
+		get_new_residual();
 		
-	//	std::cout <<"p-"<<std::endl;
-	//	std::cout << P_minus << std::endl;
-		
-		get_new_observations();
-
 		//Correction Step
 		O=H*P_minus*H.transpose()+R;
 		K=P_minus*H.transpose()*O.inverse();
-		x=x_minus+K*(z-H*x_minus);
+		x=x_minus+K*y;
 		P=(I-K*H)*P_minus;
 
 		std::cout <<"x"<<std::endl;
