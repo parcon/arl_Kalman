@@ -121,7 +121,7 @@ void get_new_residual_and_H(void){
 	z(9)=w_roll; 
 
 //PARCON TEST VECTOR
-z<<1,1,1.4, 0,0,0, 0,0, 0,0;
+//z<<1,1,1.4, 0,0,0, 0,0, 0,0;
 
 	x12_hat=x_minus(0);//estamate of position between rotors
 	y12_hat=x_minus(1);
@@ -141,9 +141,7 @@ z<<1,1,1.4, 0,0,0, 0,0, 0,0;
 
 	float xyz=pow(x12_hat,2)+pow(y12_hat,2)+pow(z12_hat,2);
 	float sq_xyz=pow(xyz,0.5);
-
-
-
+/*
 	std::cout <<"z"<<std::endl;
 	std::cout << z << std::endl;
 
@@ -158,9 +156,9 @@ z<<1,1,1.4, 0,0,0, 0,0, 0,0;
 
 	std::cout <<"y"<<std::endl;
 	std::cout << y << std::endl;
+*/
 
-
-
+//Make the residual
 //in the form y= new observation minus nonlinear model
 
 	
@@ -182,8 +180,6 @@ z<<1,1,1.4, 0,0,0, 0,0, 0,0;
 	float three_halfs_xyz=pow(xyz,1.5);
 	float x12_hat2=pow(x12_hat,2.0);
 	float y12_hat2=pow(y12_hat,2.0);
-	
-	
 	
 	//z = [ux uy d vx1 vy1 vz1 rp1 rr1 wp1 wr1]T
 	//H 1st row (ux)
@@ -212,10 +208,10 @@ z<<1,1,1.4, 0,0,0, 0,0, 0,0;
 	float dd_dx=x12_hat/sq_xyz;
 	float dd_dy=y12_hat/sq_xyz;
 	float dd_dz=z12_hat/sq_xyz;
-
+/*
 	std::cout <<"dd_dx"<<std::endl;
 	std::cout << dd_dx << std::endl;
-
+*/
 	H(2,0)=dd_dx; 
 	H(2,1)=dd_dy; 
 	H(2,2)=dd_dz;
@@ -250,7 +246,7 @@ int main(int argc, char** argv)
 			
 		//Prediction Step
 		x_minus=A*x_old+B1*u1_old+B2*u2_old;
-		
+/*		
 		std::cout << "A" << std::endl;
 		std::cout << A << std::endl;
 		
@@ -262,16 +258,16 @@ int main(int argc, char** argv)
 		
 		std::cout <<"H"<<std::endl;
 		std::cout << H << std::endl;
-		
+*/	
 		//Correction Step
 		O=H*P_minus*H.transpose()+R;
 		K=P_minus*H.transpose()*O.inverse();
 		x=x_minus+K*y;
 		P=(I-K*H)*P_minus;
-
+/*
 		std::cout <<"x"<<std::endl;
 		std::cout << x << std::endl;
-	    
+*/    
 	 	x_msg.data.clear(); //clear data
 		float move =0.0;
 	    for (long int i=0; i<dimention_n; i++)
