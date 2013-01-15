@@ -6,5 +6,12 @@
 <node pkg="rxtools" type="rxplot" name="Post_Kalman_Between_quads" args="/state_post_KF/data[0],/state_post_KF/data[1],/state_post_KF/data[2]">
 </node>
 
+<node pkg="image_view" type="image_view" respawn="false" name="ARdrone_Front" output="screen"
+		 ><!--launch-prefix="gnome-terminal -x"-->
+                <param name="autosize" type="bool" value="TRUE" />
+                <param name="window_name" type="str" value="'ARdrone Front'" />
+                <remap from="image" to="ardrone/front/image_raw" />
+</node>
+
 </launch>
 

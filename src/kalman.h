@@ -21,9 +21,11 @@ typedef Eigen::Matrix<float, dimention_m, dimention_m> measurement_error_cov;
 error_cov I;
 obs_to_state K;
 state_to_obs H;
+state_to_obs H_trans;
 control_model B1;
 control_model B2;
 dynamics_model A;
+dynamics_model A_trans;
 error_cov Q;
 error_cov P;
 error_cov P_old;
@@ -48,7 +50,7 @@ void init_matrix(void){
 
 //part two
 	int g=  9.8;
-	int k1= 1.0;
+	int k1= .25;
 	int k2= 0.5;
 	int k3= 0.5;
 	
@@ -72,11 +74,22 @@ A<< 0,0,0, 1,0,0, -1,0,0, 0,0, 0,0, 0,0, 0,0, //first line
 	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 1,0, //12 line
 	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,1, //13 line
 
+	0,0,0, 0,0,0,   0,0,0,  0,0,  0,0, k3,0, 0,0, //14
+	0,0,0, 0,0,0,   0,0,0,   0,0, 0,0, 0,k3, 0,0, //15
+
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, k3,0, //16
+	0,0,0, 0,0,0,   0,0,0,  0,0, 0,0, 0,0, 0,k3; //17
+	
+
+/*
+//this is equations where ux and uy are included thus -k2 in w_dot = f(r,w)
 	0,0,0, 0,0,0,   0,0,0,  -k2,0,  0,0, k3,0, 0,0, //14
 	0,0,0, 0,0,0,   0,0,0,   0,-k2, 0,0, 0,k3, 0,0, //15
 
 	0,0,0, 0,0,0,   0,0,0,  0,0, -k2,0, 0,0, k3,0, //16
 	0,0,0, 0,0,0,   0,0,0,  0,0, 0,-k2, 0,0, 0,k3; //17
+	
+	*/
 //std::cout << "A" << std::endl;
 //std::cout << A << std::endl;
 
@@ -180,5 +193,5 @@ u2<< 0,0,0;
 u2_old<< 0,0,0;
 
 //x_old
-x_old <<1,0,0, -1,1,1,   0,0,0,  0,0, 0,0, 0,0, 0,0;
+x_old <<1,1,1, 0,1,0,   1,0,1,  0,0, 0,0, 0,0, 0,0;
 }//end matrix setup
