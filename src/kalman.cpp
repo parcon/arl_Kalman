@@ -60,6 +60,8 @@ int cam_height=360;
 int cam_width=640;
 float cam_width_rads=92*deg2rad;
 float cam_height_rads=51*deg2rad; //cam_width_degree*(cam_height/cam_width) //NOT MEASURED
+const float focal_length = .004;//[pixel/m] [???????????????]
+const float center2camera_length = .004;// [m] [???????????????]
 
 uint32_t tags_count;
 uint32_t tags_type[10];
@@ -111,18 +113,14 @@ void Imu_callback(const sensor_msgs::Imu& imu_in)
 void get_new_residual_and_H(void){
 
 	//UPDATE Z
-	//z = [ux uy d vx1 vy1 vz1 rp1 rr1 wp1 wr1]T
-	z(0)=( (((float)(tags_yc[tag_id]-500.0)) /500.0) *cam_height_rads/2.0); // global z vector
-	z(1)=( (((float)(tags_xc[tag_id]-500.0)) /500.0) *cam_width_rads/2.0); //global y vector
-	z(2)=tags_distance[tag_id];
+	//z = [uy uz d v1x v1y v1z]T
+	z(0)=(float)tags_xc[tag_id]; //global y vector
+	z(1)=(float)tags_yc[tag_id]; // global z vector
+	z(2)=(float)tags_distance[tag_id];
 	z(3)=vel_x;
 	z(4)=vel_y;
 	z(5)=vel_z;
-	z(6)=rotation_pitch;
-	z(7)=rotation_roll;
-	z(8)=w_pitch;
-	z(9)=w_roll; 
-
+		
 	x12_hat=x_minus(0); //estamate of position between rotors
 	y12_hat=x_minus(1);
 	z12_hat=x_minus(2);
@@ -132,67 +130,64 @@ void get_new_residual_and_H(void){
 	//x_minus(6);
 	//x_minus(7);
 	//x_minus(8);
-	rp1_hat=x_minus(9);//estimate of pitch quad1
-	rr1_hat=x_minus(10);//estimate of roll quad1
-	//x_minus(11);
-	//x_minus(12);
-	wp1_hat=x_minus(13);//estimate of ang velocity roll quad1
-	wr1_hat=x_minus(14);//estimate of ang velocity roll quad1
-
-	float xyz=pow(x12_hat,2)+pow(y12_hat,2)+pow(z12_hat,2);
-	float sqr_xyz=pow(xyz,0.5);
-	float three_halfs_xyz=pow(xyz,1.5);
-	//float x12_hat2=pow(x12_hat,2.0);
-	float y12_hat2=pow(y12_hat,2.0);
-	float z12_hat2=pow(z12_hat,2.0);
-
 
 //Make the residual
 //in the form y= new observation minus nonlinear model
 
+	y(0)=z(0)-focal_length*( 
+	(y12_hat*cos(rotation_roll)+sin(rotation_roll)*
+	(z12_hat*cos(rotation_pitch)+x12_hat*sin(rotation_pitch))
+	/
+	(-center2camera_length+x12_hat*cos(rotation_pitch)+z12_hat*sin(rotation_pitch) ) )
+	); //error in uy
 	
-	y(0)=z(0)-asin(z12_hat/sqr_xyz)-rp1_hat; //error in uz
-	y(1)=z(1)-asin(y12_hat/sqr_xyz)-rr1_hat; //error in uy
-	y(2)=z(2)-sqr_xyz; //error in distance away
+	y(1)=z(1)-focal_length*( (y12_hat*sin(rotation_roll)-cos(rotation_roll)*(z12_hat*cos(rotation_pitch)+x12_hat*sin(rotation_pitch))/
+	(center2camera_length-x12_hat*cos(rotation_pitch)+z12_hat*sin(rotation_pitch) ) )); //error in uz
+	
+	y(2)=z(2)-pow(pow(x12_hat,2)+pow(y12_hat,2)+pow(z12_hat,2),0.5); //error in distance away
 
 	//linear parts
 	y(3)=z(3)- vx1_hat; //error in vx of quad1
 	y(4)=z(4)- vy1_hat; //error in vy of quad1
 	y(5)=z(5)- vz1_hat; //error in vz of quad1
-	y(6)=z(6)- rp1_hat; //error in pitch of quad1
-	y(7)=z(7)- rr1_hat; //error in roll of quad1
-	y(8)=z(8)- wp1_hat; //error in ang vel pitch of quad1
-	y(9)=z(9)- wp1_hat; //error in ang vel roll of quad1
 
 
 //Build the H matrix 
 
 	
-	//z = [uz uy d vx1 vy1 vz1 rp1 rr1 wp1 wr1]T
-	//H 1st row (ux)
+	//z = [uy uz d vx1 vy1 vz1]T
 	
-	float duz_dx=(x12_hat*z12_hat)/( three_halfs_xyz * pow( 1-(z12_hat2/xyz),0.5) );
-	float duz_dy=(y12_hat*z12_hat)/( three_halfs_xyz * pow( 1-(z12_hat2/xyz),0.5) );
-	float duz_dz=(-(z12_hat2/three_halfs_xyz) + (1/sqr_xyz) )/ (pow(1-(z12_hat2/xyz),0.5));
-	float duz_drp= -1.0;
+	//H 1st row (uy)
 	
-	H(0,0)=duz_dx; 
-	H(0,1)=duz_dy; 
-	H(0,2)=duz_dz;
-	H(0,9)=duz_drp;
+	H(0,0)=-focal_length*
+	( 
+	(y12_hat*cos(rotation_roll)*cos(rotation_pitch)+sin(rotation_roll)*(z12_hat+center2camera_length*sin(rotation_pitch)) )
+	/
+	( pow(center2camera_length-x12_hat*cos(rotation_pitch)+z12_hat*sin(rotation_pitch) ,2) 	)
+	); //duy dx12
 	
-	//H 2nd row (uy)
-	float duy_dx=(x12_hat*y12_hat)/( three_halfs_xyz* pow( 1-(y12_hat2/xyz),0.5) );
-	float duy_dy=(-(y12_hat2/three_halfs_xyz) + (1/sqr_xyz) )/ (pow(1-(y12_hat2/xyz),0.5));
-	float duy_dz=(z12_hat*y12_hat)/( three_halfs_xyz* pow( 1-(y12_hat2/xyz),0.5) );
-	float duy_drr= -1.0;
+	H(0,1)=focal_length*(cos(rotation_roll)/(center2camera_length-x12_hat*cos(rotation_pitch)+z12_hat*sin(rotation_pitch))); //duy dy12
+	H(0,2)=focal_length*
+	( 
+	((x12_hat-center2camera_length*cos(rotation_pitch))*sin(rotation_roll)+y12_hat*cos(rotation_roll)*sin(rotation_pitch))
+	/
+	( pow(center2camera_length-(x12_hat*cos(rotation_pitch))+(z12_hat*sin(rotation_pitch)) ,2) 	)
+	);//duy dz12
+
+	//H 2nd row (uz)
 	
-	H(1,0)=duy_dx; 
-	H(1,1)=duy_dy; 
-	H(1,2)=duy_dz;
-	H(1,10)=duy_drr;
+	H(1,0)= -focal_length*
+	( 
+	(-y12_hat*cos(rotation_pitch)*sin(rotation_roll)+cos(rotation_roll)* ( z12_hat+center2camera_length*sin(rotation_pitch) ) )/
+	( pow(center2camera_length-(x12_hat*cos(rotation_pitch))+(z12_hat*sin(rotation_pitch)) ,2) 	)
+	); //duz dx12
+	H(1,1)=(focal_length*sin(rotation_roll))/ ( center2camera_length-( x12_hat*cos(rotation_pitch) )  +(z12_hat*sin(rotation_pitch)) ); 
+	H(1,2)=(focal_length* ( cos(rotation_roll)*(x12_hat-center2camera_length*cos(rotation_pitch))-y12_hat*sin(rotation_pitch)*sin(rotation_roll)    )  )/ 
+	( pow(center2camera_length-(x12_hat*cos(rotation_pitch))+(z12_hat*sin(rotation_pitch)) ,2) );
+
 	
 	//H 3rd row (d)
+	float sqr_xyz= pow(pow(x12_hat,2)+pow(y12_hat,2)+pow(z12_hat,2),0.5);
 	float dd_dx=x12_hat/sqr_xyz;
 	float dd_dy=y12_hat/sqr_xyz;
 	float dd_dz=z12_hat/sqr_xyz;
@@ -245,7 +240,7 @@ int main(int argc, char** argv)
 	while (ros::ok() && had_message_1 && had_message_2){
 			
 		//Prediction Step
-		x_minus=A*x_old+B1*u1_old+B2*u2_old;
+		x_minus=A*x_old+B1*u1_old;
 		P_minus=A*P_old*A.transpose() + Q;
 		get_new_residual_and_H();
 		//Correction Step
