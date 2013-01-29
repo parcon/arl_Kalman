@@ -27,6 +27,7 @@ v is measurement white noise ~ N(0,R)
 #include <sensor_msgs/Imu.h>
 #include <ardrone_autonomy/Navdata.h>
 #include "kalman.h"
+#include <math.h>
 
 //Matrix part one taken from here PARCON
 
@@ -133,7 +134,10 @@ void get_new_residual_and_H(void){
 
 //Make the residual
 //in the form y= new observation minus nonlinear model
-
+	
+	float sqr_xyz= pow(pow((float)x12_hat,2)+pow((float)y12_hat,2)+pow((float)z12_hat,2),0.5);
+	
+	
 	y(0)=z(0)-focal_length*( 
 	(y12_hat*cos(rotation_roll)+sin(rotation_roll)*
 	(z12_hat*cos(rotation_pitch)+x12_hat*sin(rotation_pitch))
@@ -144,7 +148,7 @@ void get_new_residual_and_H(void){
 	y(1)=z(1)-focal_length*( (y12_hat*sin(rotation_roll)-cos(rotation_roll)*(z12_hat*cos(rotation_pitch)+x12_hat*sin(rotation_pitch))/
 	(center2camera_length-x12_hat*cos(rotation_pitch)+z12_hat*sin(rotation_pitch) ) )); //error in uz
 	
-	y(2)=z(2)-pow(pow(x12_hat,2)+pow(y12_hat,2)+pow(z12_hat,2),0.5); //error in distance away
+	y(2)=z(2)-sqr_xyz; //error in distance away
 
 	//linear parts
 	y(3)=z(3)- vx1_hat; //error in vx of quad1
@@ -187,7 +191,7 @@ void get_new_residual_and_H(void){
 
 	
 	//H 3rd row (d)
-	float sqr_xyz= pow(pow(x12_hat,2)+pow(y12_hat,2)+pow(z12_hat,2),0.5);
+	
 	float dd_dx=x12_hat/sqr_xyz;
 	float dd_dy=y12_hat/sqr_xyz;
 	float dd_dz=z12_hat/sqr_xyz;
@@ -201,10 +205,18 @@ void get_new_residual_and_H(void){
 	std::cout <<"dd_dz"<<std::endl;
 	std::cout << dd_dz << std::endl;
 
-	H(2,0)=dd_dx; 
-	H(2,1)=dd_dy; 
-	H(2,2)=dd_dz;
-
+	if (sqr_xyz==0) //check for divide by zero
+	{
+		H(2,0)=0; 
+		H(2,1)=0; 
+		H(2,2)=0;
+	}
+	else
+	{
+		H(2,0)=dd_dx; 
+		H(2,1)=dd_dy; 
+		H(2,2)=dd_dz;
+	}
 	//Rest of the H matrix is just composed of ones and zeros.
 	//ones on matching terms aka: dvx1/dvx1, dvy1/dvy1
 	//zeros elsewhere
@@ -252,14 +264,16 @@ int main(int argc, char** argv)
 		std::cout <<"x"<<std::endl;
 		std::cout << x << std::endl;
 		
+		std::cout << "y" << std::endl;
+		std::cout << y << std::endl;
+	/*	
 		std::cout <<"x_minus"<<std::endl;
 		std::cout << x_minus << std::endl;
 		
 		std::cout << "z" << std::endl;
 		std::cout << z << std::endl;
 		
-		std::cout << "y" << std::endl;
-		std::cout << y << std::endl;
+
 		
 		std::cout << "H" << std::endl;
 		std::cout << H << std::endl;
@@ -269,7 +283,10 @@ int main(int argc, char** argv)
 		  
 		std::cout <<"O"<<std::endl;
 		std::cout << O << std::endl;
-		  
+		
+		std::cout <<"K"<<std::endl;
+		std::cout << K << std::endl;
+	*/  
 	 	x_msg.data.clear(); //clear data
 		float move =0.0;
 	    for (long int i=0; i<dimention_n; i++)
